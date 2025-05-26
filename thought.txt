@@ -1,0 +1,194 @@
+WEBSCRAPPING framework
+
+before that you need to pip install requests and bs4:
+!pip install bs4
+!pip install requests pandas html5lib 
+--------------------------------------------------------------------------
+import requests
+from bs4 import BeautifulSoup
+# Specify the URL of the webpage you want to scrape
+url = 'https://en.wikipedia.org/wiki/IBM'
+# Send an HTTP GET request to the webpage
+response = requests.get(url)
+# Store the HTML content in a variable
+html_content = response.text
+# Create a BeautifulSoup object to parse the HTML
+soup = BeautifulSoup(html_content, 'html.parser')
+# Display a snippet of the HTML content
+print(html_content[:500])
+
+----------------------------------------------------------------------------
+
+#Downloading a webpage & scraping all its links
+url = "http://www.ibm.com"
+data  = requests.get(url).text 
+soup = BeautifulSoup(data,"html5lib")  # create a soup object using the variable 'data'
+for link in soup.find_all('a',href=True):  # in html anchor/link is represented by the tag <a>
+
+    print(link.get('href'))
+
+----------------------------------------------------------------------------
+# Find all <a> tags (anchor tags) in the HTML
+links = soup.find_all('a')
+# Iterate through the list of links and print their text
+for the link in links:
+    print(link.text)
+
+-------------------------------------------------------------------------------
+#This code was able to generate captions on random images
+
+pip3 install virtualenv 
+virtualenv my_env # create a virtual environment my_env
+source my_env/bin/activate # activate my_env
+
+# installing required libraries in my_env
+pip install langchain==0.1.11 gradio==5.23.2 transformers==4.38.2 bs4==0.0.2 requests==2.31.0 torch==2.2.1
+
+Then the python code below:
+
+import requests
+from PIL import Image
+from transformers import AutoProcessor, BlipForConditionalGeneration
+
+# Load the pretrained processor and model
+processor = AutoProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+
+# Load your image, DONT FORGET TO WRITE YOUR IMAGE NAME
+img_path = "test.jpeg"
+# convert it into an RGB format 
+image = Image.open(img_path).convert('RGB')
+
+# You do not need a question for image captioning
+text = "the image of"
+inputs = processor(images=image, text=text, return_tensors="pt")
+
+# Generate a caption for the image
+outputs = model.generate(**inputs, max_length=50)
+
+# Decode the generated tokens to text
+caption = processor.decode(outputs[0], skip_special_tokens=True)
+# Print the caption
+print(caption)
+
+--------------------------------------------------------------------------------
+
+# Making a chatbot
+
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
+model_name = "facebook/blenderbot-400M-distill"
+
+# Load model (download on first run and reference local installation for consequent runs)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+conversation_history = []
+
+while True:
+    # Create conversation history string
+    history_string = "\n".join(conversation_history)
+
+    # Get the input data from the user
+    input_text = input("> ")
+
+    # Tokenize the input text and history
+    inputs = tokenizer.encode_plus(history_string, input_text, return_tensors="pt")
+
+    # Generate the response from the model
+    outputs = model.generate(**inputs)
+
+    # Decode the response
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+    
+    print(response)
+
+    # Add interaction to conversation history
+    conversation_history.append(input_text)
+    conversation_history.append(response)
+
+--------------------------------------------------------------------------------
+
+#Building a resume polisher - using gradio as front-end 
+
+# Import necessary packages
+from ibm_watsonx_ai import Credentials
+from ibm_watsonx_ai import APIClient
+from ibm_watsonx_ai.foundation_models import Model, ModelInference
+from ibm_watsonx_ai.foundation_models.schema import TextChatParameters
+from ibm_watsonx_ai.metanames import GenTextParamsMetaNames
+import gradio as gr
+
+# Model and project settings
+model_id = "meta-llama/llama-3-2-11b-vision-instruct"  # Directly specifying the LLAMA3 model
+
+# Set credentials to use the model
+credentials = Credentials(
+                   url = "https://us-south.ml.cloud.ibm.com",
+                  )
+
+# Generation parameters
+params = TextChatParameters(
+    temperature=0.7,
+    max_tokens=512
+)
+
+project_id = "skills-network"  # Specifying project_id as provided
+
+# Initialize the model
+model = ModelInference(
+    model_id=model_id,
+    credentials=credentials,
+    project_id=project_id,
+    params=params
+)
+
+# Function to polish the resume using the model, making polish_prompt optional
+def polish_resume(position_name, resume_content, polish_prompt=""):
+    # Check if polish_prompt is provided and adjust the combined_prompt accordingly
+    if polish_prompt and polish_prompt.strip():
+        prompt_use = f"Given the resume content: '{resume_content}', polish it based on the following instructions: {polish_prompt} for the {position_name} position."
+    else:
+        prompt_use = f"Suggest improvements for the following resume content: '{resume_content}' to better align with the requirements and expectations of a {position_name} position. Return the polished version, highlighting necessary adjustments for clarity, relevance, and impact in relation to the targeted role."
+    
+    messages = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": prompt_use
+            },
+        ]
+    }
+]   
+    # Generate a response using the model with parameters
+    generated_response = model.chat(messages=messages)
+
+    # Extract and return the generated text
+    generated_text = generated_response['choices'][0]['message']['content']
+    
+    return generated_text
+
+# Create Gradio interface for the resume polish application, marking polish_prompt as optional
+resume_polish_application = gr.Interface(
+    fn=polish_resume,
+    flagging_mode="never", # Deactivate the flag function in gradio as it is not needed.
+    inputs=[
+        gr.Textbox(label="Position Name", placeholder="Enter the name of the position..."),
+        gr.Textbox(label="Resume Content", placeholder="Paste your resume content here...", lines=20),
+        gr.Textbox(label="Polish Instruction (Optional)", placeholder="Enter specific instructions or areas for improvement (optional)...", lines=2),
+    ],
+    outputs=gr.Textbox(label="Polished Content"),
+    title="Resume Polish Application",
+    description="This application helps you polish your resume. Enter the position your want to apply, your resume content, and specific instructions or areas for improvement (optional), then get a polished version of your content."
+)
+
+# Launch the application
+resume_polish_application.launch()
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#How to set up an open ai api key for using it in python scripts
+https://www.coursera.org/learn/generative-ai-elevate-software-development-career/ungradedWidget/7oEUG/hands-on-lab-openai-account-setup-and-api-key-generation
+
