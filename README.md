@@ -1,4 +1,4 @@
-# Carbon Emission Calculator
+# Personalised News Digest (This readme file has been copied from a previous project of mine and I am still updating the readme file)
 
 A machine learning-based tool for providing personalised news digests to users from web scrapped data. The project uses a Random Forest model to learn user preferences and suggest digests based on previous articles read or specified preferences by the user.
 
