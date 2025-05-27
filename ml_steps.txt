@@ -1,0 +1,100 @@
+#Still learning how to make an ML model - This is all based on this article https://medium.com/data-scientists-diary/how-to-build-your-first-machine-learning-model-with-python-5e39ea6e8904
+
+Dealing with the data first - Pre-Processing
+
+    1.  Need data - and will read it in using pandas e.g. dataset = pd.read_csv('path_to_data.csv)
+
+    2.  Feature Engineering - filling in missing pieces of data rather than getting rid of rows with missing data.
+        This can be done by using medians, means, or more complex imputation techniques based on domain knowledge.
+        Not all features will be equal, it will be scaled.
+
+        from sklearn.preprocessing import StandardScaler
+        dataset = dataset.fillna(dataset.median())
+        scaler = StandardScaler()
+        scaled_features = scaler.fit_transform(dataset.drop('target',axis=1))
+
+    3.  Target Encoding for Categorical Variables - Decide whether to use one-hot or label Encoding
+
+        from sklearn.preprocessing import OneHotEncoder
+        encoder = OneHotEncoder()
+        encoded_data = encoder.fit_transform(categorical_data)
+
+        One-Hot Encoding, for example, works beautifully with linear models but can be a disaster with models that aren’t robust to high-dimensional spaces.
+
+    4.  Splitting the Dataset - This is done to protect integrity of model
+        Train-Test Split - Keep some data away for testing (don't let model peak into future)
+
+        from sklearn.model_selection import train_test_split
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+        Notice the random_state=42. Reproducibility is your best friend—especially when you’re sharing results or debugging. 
+        It ensures you (and anyone else) can replicate the exact same split each time.
+
+        But wait, there’s more: You might be tempted to think that splitting into just training and testing sets is enough. 
+        It’s not. You need to go one step further — this is where validation sets and cross-validation come into play.
+
+    5.  Validation and Cross-validation - to ensure your model isn't learning from specific quirks of your data
+
+        K-Fold Cross-Validation:
+
+        from sklearn.model_selection import cross_val_score
+        scores = cross_val_score(model, X_train, y_train, cv=5)
+        print(f"Cross-Validation Scores: {scores}")
+
+        Cross-validatioon ensures robustness across different data splits.
+
+Model Selection - You’ve probably got a whole arsenal of models in mind — Logistic Regression, Decision Trees, RandomForest, XGBoost.
+    
+    It is important to select the correct model. For linear cases, logistic or linear regression can be a good baseline.
+
+    from sklearn.linear_model import LogisticRegression
+    model = LogisticRegression()
+    model.fit(X_train, y_train)
+
+    For more complex scenarios, you can use RandomForest or XGBoost. This is because RandomForest can handle non-linearity 
+    and feature interactions without much tuning. XGBoost gives you exceptional control over boosting, making it ideal for 
+    squeezing out extra performance on trickier problems.
+
+    For Binary Classification vs Multiclass Classification i.e. one vs rest or one vs one.
+
+    from sklearn.linear_model import LogisticRegression
+    model = LogisticRegression(multi_class='multinomial', solver='lbfgs')
+    model.fit(X_train, y_train) 
+
+    Regression Models: For regression problems, Linear Regression is often the go-to model. But here’s the twist: If your data isn’t linear, Linear Regression can lead you astray. You might need to upgrade to Polynomial Regression to capture those complex relationships:
+
+    from sklearn.preprocessing import PolynomialFeatures
+    from sklearn.linear_model import LinearRegression
+    poly = PolynomialFeatures(degree=2)
+    X_poly = poly.fit_transform(X_train)
+    model = LinearRegression()
+    model.fit(X_poly, y_train)
+
+    Be careful because the higher the degree of non-linearity, the higher the model is prone to overfitting
+
+    Baseline Model: It’s the simplest version of your model that you compare everything else to. The beauty of a baseline is that it gives you a reference point. 
+    If your more complex model isn’t beating the baseline by a significant margin, you’ve got a red flag.
+
+    from sklearn.dummy import DummyClassifier
+    dummy = DummyClassifier(strategy='most_frequent')
+    dummy.fit(X_train, y_train)
+    print(f"Baseline Accuracy: {dummy.score(X_test, y_test)}")
+
+    the dummy variable predicts the most frequent class 
+
+    If your sophisticated model doesn’t outperform this dummy classifier, it’s time to re-evaluate either your feature engineering or model choice.
+
+Training the Model 
+
+Model Evaluation
+
+Model Improvement
+
+Model Deployment
+    Use joblib to save the trained model for future rather than training it all over again
+
+    import joblib
+    # Save the model
+    joblib.dump(model, 'model.pkl')
+    # Load the model
+    loaded_model = joblib.load('model.pkl')
