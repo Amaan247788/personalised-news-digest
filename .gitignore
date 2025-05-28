@@ -1,0 +1,10 @@
+# Ignore dataset file (or any large data files)
+News_Category_Dataset_v3.json
+
+# Ignore virtual environment folder
+venv/
+
+# You can add more things to ignore, like:
+__pycache__/
+*.pyc
+.DS_Store
