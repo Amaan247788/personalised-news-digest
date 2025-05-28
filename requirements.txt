@@ -1,6 +1,8 @@
-pip install pandas feedparser
-pip install schedule
-
-for trainingModel.py
-pip install pandas 
-pip
+pandas==2.1.0
+matplotlib==3.7.2
+numpy==1.24.3
+scikit-learn==1.3.0
+tensorflow==2.13.0
+keras==2.13.1
+nltk==3.8.1
+feedparser==6.0.10
