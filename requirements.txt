@@ -1,2 +1,6 @@
 pip install pandas feedparser
 pip install schedule
+
+for trainingModel.py
+pip install pandas 
+pip

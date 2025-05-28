@@ -1,4 +1,5 @@
-# This file will scrape news data from Google News RSS Feeds since it is free and legally allowed
+# This file will scrape news data from Google News RSS Feeds since it is free and legally allowed - https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en
+# Going to use that one instead since it isnt limited to just tech news. -> Broader
 
 import pandas as pd
 import feedparser
