@@ -1,184 +1,305 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-import tensorflow as tf
-import tensorflow_hub as hub
-from tensorflow.keras.layers import Dense, Dropout, LeakyReLU
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from text_preprocessing import preprocess_text
+from sklearn.metrics import classification_report, confusion_matrix
+from imblearn.over_sampling import SMOTE
+from scipy import sparse
 import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk import ne_chunk, pos_tag
+import re
+import json
 
-def load_and_preprocess_data(file_path):
+# Download required NLTK data
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('wordnet')
+nltk.download('vader_lexicon')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('maxent_ne_chunker')
+nltk.download('words')
+
+# Define category groups
+CATEGORY_GROUPS = {
+    'NEWS': ['U.S. NEWS', 'WORLD NEWS', 'THE WORLDPOST', 'WORLDPOST', 'IMPACT'],
+    'LIFESTYLE': ['HEALTHY LIVING', 'GREEN', 'WELLNESS', 'STYLE & BEAUTY', 'STYLE'],
+    'ENTERTAINMENT': ['ENTERTAINMENT', 'COMEDY', 'ARTS', 'ARTS & CULTURE', 'CULTURE & ARTS'],
+    'TECH': ['TECH', 'SCIENCE'],
+    'BUSINESS': ['BUSINESS', 'MONEY'],
+    'SPORTS': ['SPORTS'],
+    'POLITICS': ['POLITICS'],
+    'OTHER': ['WEIRD NEWS', 'GOOD NEWS', 'FIFTY']
+}
+
+def get_category_group(category):
+    for group, categories in CATEGORY_GROUPS.items():
+        if category in categories:
+            return group
+    return 'OTHER'
+
+def load_data(file_path, sample_size=0.12):
     print("Loading data...")
-    df = pd.read_json(file_path, lines=True)
+    data = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            data.append(json.loads(line))
+    df = pd.DataFrame(data)
+    # Sample the data
+    df = df.sample(frac=sample_size, random_state=42)
+    print(f"Loaded {len(df)} samples (using {sample_size*100}% of data)")
+    return df
+
+def clean_text(text):
+    if not isinstance(text, str):
+        return ""
+    # Convert to lowercase
+    text = text.lower()
+    # Remove special characters and digits
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    # Remove extra whitespace
+    text = ' '.join(text.split())
+    return text
+
+def preprocess_text(text):
+    try:
+        # Tokenize
+        tokens = word_tokenize(text)
+        # Remove stopwords
+        stop_words = set(stopwords.words('english'))
+        tokens = [t for t in tokens if t not in stop_words]
+        # Lemmatize
+        lemmatizer = WordNetLemmatizer()
+        tokens = [lemmatizer.lemmatize(t) for t in tokens]
+        return ' '.join(tokens)
+    except Exception as e:
+        print(f"Error processing text: {text[:50]}... Error: {str(e)}")
+        return text
+
+def extract_text_length_features(df):
+    """Extract text length related features"""
+    df['headline_length'] = df['headline'].str.len()
+    df['description_length'] = df['short_description'].str.len()
+    df['headline_word_count'] = df['headline'].str.split().str.len()
+    df['description_word_count'] = df['short_description'].str.split().str.len()
+    return df
+
+def extract_sentiment_features(df):
+    """Extract sentiment analysis features"""
+    sia = SentimentIntensityAnalyzer()
     
-    # Sample only 10% of the data for faster training
-    df = df.sample(frac=0.1, random_state=42)
-    print(f"Using {len(df)} samples for training")
+    def get_sentiment_scores(text):
+        if not isinstance(text, str):
+            return {'neg': 0, 'neu': 0, 'pos': 0, 'compound': 0}
+        return sia.polarity_scores(text)
     
-    # Combine headline and description
-    df['text'] = df['headline'] + " " + df['short_description']
+    # Get sentiment scores for headlines
+    headline_sentiments = df['headline'].apply(get_sentiment_scores)
+    df['headline_neg'] = headline_sentiments.apply(lambda x: x['neg'])
+    df['headline_neu'] = headline_sentiments.apply(lambda x: x['neu'])
+    df['headline_pos'] = headline_sentiments.apply(lambda x: x['pos'])
+    df['headline_compound'] = headline_sentiments.apply(lambda x: x['compound'])
     
-    # Clean and preprocess text
-    print("Preprocessing text...")
-    df['processed_text'] = df['text'].apply(preprocess_text)
-    
-    # Remove any empty texts after preprocessing
-    df = df[df['processed_text'].str.strip().astype(bool)]
+    # Get sentiment scores for descriptions
+    desc_sentiments = df['short_description'].apply(get_sentiment_scores)
+    df['desc_neg'] = desc_sentiments.apply(lambda x: x['neg'])
+    df['desc_neu'] = desc_sentiments.apply(lambda x: x['neu'])
+    df['desc_pos'] = desc_sentiments.apply(lambda x: x['pos'])
+    df['desc_compound'] = desc_sentiments.apply(lambda x: x['compound'])
     
     return df
 
+def extract_named_entities(text):
+    """Extract named entities from text"""
+    if not isinstance(text, str):
+        return 0
+    try:
+        tokens = word_tokenize(text)
+        pos_tags = pos_tag(tokens)
+        named_entities = ne_chunk(pos_tags)
+        return len([chunk for chunk in named_entities if hasattr(chunk, 'label')])
+    except:
+        return 0
+
 def prepare_data(df):
-    # Encode labels
-    label_encoder = LabelEncoder()
-    df['label'] = label_encoder.fit_transform(df['category'])
-    label_map = dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))
+    print("Preprocessing text...")
+    # Clean and preprocess headlines
+    print("Cleaning headlines...")
+    df['cleaned_headline'] = df['headline'].apply(clean_text)
+    print("Preprocessing headlines...")
+    df['processed_headline'] = df['cleaned_headline'].apply(preprocess_text)
     
-    return df['processed_text'].values, df['label'].values, label_map
+    # Clean and preprocess short descriptions
+    print("Cleaning short descriptions...")
+    df['cleaned_description'] = df['short_description'].apply(clean_text)
+    print("Preprocessing short descriptions...")
+    df['processed_description'] = df['cleaned_description'].apply(preprocess_text)
+    
+    # Extract additional features
+    print("Extracting text length features...")
+    df = extract_text_length_features(df)
+    
+    print("Extracting sentiment features...")
+    df = extract_sentiment_features(df)
+    
+    print("Extracting named entity features...")
+    df['headline_entities'] = df['headline'].apply(extract_named_entities)
+    df['description_entities'] = df['short_description'].apply(extract_named_entities)
+    
+    # Combine headline and description
+    df['combined_text'] = df['processed_headline'] + ' ' + df['processed_description']
+    
+    # Add category group
+    df['category_group'] = df['category'].apply(get_category_group)
+    
+    return df
 
-def train_baseline_models(X_train, X_test, y_train, y_test):
-    print("\nTraining baseline models...")
+def balance_dataset(X, y):
+    print("\nBalancing dataset...")
+    # Get class distribution before balancing
+    print("Class distribution before balancing:")
+    print(pd.Series(y).value_counts())
     
-    # TF-IDF Vectorization
-    print("Vectorizing text with TF-IDF...")
-    vectorizer = TfidfVectorizer(max_features=5000)
-    X_train_tfidf = vectorizer.fit_transform(X_train)
-    X_test_tfidf = vectorizer.transform(X_test)
+    # Apply SMOTE to balance the dataset
+    smote = SMOTE(random_state=42)
+    X_balanced, y_balanced = smote.fit_resample(X, y)
     
-    # Train Multinomial Naive Bayes
-    print("\nTraining Multinomial Naive Bayes...")
-    nb_model = MultinomialNB()
-    nb_model.fit(X_train_tfidf, y_train)
-    nb_pred = nb_model.predict(X_test_tfidf)
-    nb_accuracy = accuracy_score(y_test, nb_pred)
-    print(f"Naive Bayes Accuracy: {nb_accuracy:.4f}")
+    # Get class distribution after balancing
+    print("\nClass distribution after balancing:")
+    print(pd.Series(y_balanced).value_counts())
     
-    # Train Logistic Regression
-    print("\nTraining Logistic Regression...")
-    lr_model = LogisticRegression(max_iter=1000)
-    lr_model.fit(X_train_tfidf, y_train)
-    lr_pred = lr_model.predict(X_test_tfidf)
-    lr_accuracy = accuracy_score(y_test, lr_pred)
-    print(f"Logistic Regression Accuracy: {lr_accuracy:.4f}")
-    
-    # Train Random Forest
-    print("\nTraining Random Forest...")
-    rf_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-    rf_model.fit(X_train_tfidf, y_train)
-    rf_pred = rf_model.predict(X_test_tfidf)
-    rf_accuracy = accuracy_score(y_test, rf_pred)
-    print(f"Random Forest Accuracy: {rf_accuracy:.4f}")
-    
-    return nb_accuracy, lr_accuracy, rf_accuracy
+    return X_balanced, y_balanced
 
-class HubLayer(tf.keras.layers.Layer):
-    def __init__(self, embedding_url, **kwargs):
-        super(HubLayer, self).__init__(**kwargs)
-        self.embedding_url = embedding_url
-        self.hub_layer = hub.KerasLayer(embedding_url, trainable=False)
-
-    def call(self, inputs):
-        return self.hub_layer(inputs)
-
-def create_model(num_classes):
-    embedding = "https://tfhub.dev/google/nnlm-en-dim128/2"
-    hub_layer = HubLayer(embedding, name="embedding")
+def train_specialized_classifier(X, y, category):
+    """Train a specialized classifier for a specific category"""
+    # Create a binary classification problem
+    y_binary = (y == category).astype(int)
     
-    inputs = tf.keras.Input(shape=(), dtype=tf.string, name="text")
-    x = hub_layer(inputs)
-    x = Dense(64)(x)
-    x = LeakyReLU()(x)
-    x = Dropout(0.2)(x)
-    x = Dense(32)(x)
-    x = LeakyReLU()(x)
-    x = Dropout(0.2)(x)
-    outputs = Dense(num_classes, activation='softmax')(x)
+    # Balance the dataset
+    X_balanced, y_balanced = balance_dataset(X, y_binary)
     
-    model = tf.keras.Model(inputs=inputs, outputs=outputs)
-    return model
-
-def create_dataset(texts, labels, batch_size):
-    dataset = tf.data.Dataset.from_tensor_slices((texts, labels))
-    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    # Train classifier
+    classifier = RandomForestClassifier(
+        n_estimators=100,
+        max_depth=20,
+        min_samples_split=5,
+        min_samples_leaf=2,
+        class_weight='balanced',
+        n_jobs=-1,
+        random_state=42
+    )
+    classifier.fit(X_balanced, y_balanced)
+    
+    return classifier
 
 def train_model():
     # Load and preprocess data
-    df = load_and_preprocess_data('News_Category_Dataset_v3.json')
+    df = load_data('News_Category_Dataset_v3.json', sample_size=0.12)
+    df = prepare_data(df)
     
-    # Prepare data
-    X, y, label_map = prepare_data(df)
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    # Train baseline models
-    nb_accuracy, lr_accuracy, rf_accuracy = train_baseline_models(X_train, X_test, y_train, y_test)
-    
-    # Create model
-    model = create_model(num_classes=len(label_map))
-    
-    # Compile model
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    model.compile(
-        loss='sparse_categorical_crossentropy',
-        optimizer=optimizer,
-        metrics=['accuracy']
+    # Create TF-IDF vectorizer with optimized parameters
+    print("Creating TF-IDF vectors...")
+    vectorizer = TfidfVectorizer(
+        max_features=8000,
+        ngram_range=(1, 3),
+        min_df=3,
+        max_df=0.90,
+        sublinear_tf=True,
+        use_idf=True,
+        smooth_idf=True
     )
+    X_text = vectorizer.fit_transform(df['combined_text'])
     
-    # Callbacks
-    early_stopping = EarlyStopping(
-        monitor='val_loss',
-        patience=2,
-        restore_best_weights=True
+    # Combine text features with additional features
+    additional_features = df[[
+        'headline_length', 'description_length',
+        'headline_word_count', 'description_word_count',
+        'headline_neg', 'headline_pos',
+        'desc_neg', 'desc_pos',
+        'headline_entities', 'description_entities'
+    ]].values
+    
+    # Convert additional features to sparse matrix
+    additional_features_sparse = sparse.csr_matrix(additional_features)
+    
+    # Combine sparse matrices
+    X = sparse.hstack([X_text, additional_features_sparse])
+    y = df['category']
+    y_group = df['category_group']
+    
+    # Split the data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    _, _, y_train_group, y_test_group = train_test_split(X, y_group, test_size=0.2, random_state=42, stratify=y_group)
+    
+    # Train main classifier for category groups
+    print("\nTraining main classifier for category groups...")
+    main_classifier = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=25,
+        min_samples_split=5,
+        min_samples_leaf=2,
+        max_features='sqrt',
+        bootstrap=True,
+        class_weight='balanced_subsample',
+        n_jobs=-1,
+        random_state=42
     )
+    main_classifier.fit(X_train, y_train_group)
     
-    reduce_lr = ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=0.2,
-        patience=1,
-        min_lr=0.0001
-    )
+    # Train specialized classifiers for challenging categories
+    print("\nTraining specialized classifiers for challenging categories...")
+    specialized_classifiers = {}
+    for category in ['U.S. NEWS', 'IMPACT', 'HEALTHY LIVING', 'GREEN', 'WEIRD NEWS', 'GOOD NEWS']:
+        print(f"Training specialized classifier for {category}...")
+        specialized_classifiers[category] = train_specialized_classifier(X_train, y_train, category)
     
-    # Create TensorFlow datasets
-    train_dataset = create_dataset(X_train, y_train, batch_size=64)
-    test_dataset = create_dataset(X_test, y_test, batch_size=64)
+    # Evaluate the model
+    print("\nEvaluating model...")
+    y_pred_group = main_classifier.predict(X_test)
+    y_pred = y_test.copy()
     
-    # Train model
-    print("\nTraining neural network model...")
-    history = model.fit(
-        train_dataset,
-        epochs=3,
-        validation_data=test_dataset,
-        callbacks=[early_stopping, reduce_lr]
-    )
+    # Use specialized classifiers for challenging categories
+    for category, classifier in specialized_classifiers.items():
+        # Get predictions for the category
+        category_mask = (y_pred_group == get_category_group(category))
+        if category_mask.any():
+            category_probs = classifier.predict_proba(X_test[category_mask])[:, 1]
+            # Update predictions where specialized classifier is confident
+            confident_mask = category_probs > 0.6
+            y_pred[category_mask] = np.where(confident_mask, category, y_pred[category_mask])
     
-    # Evaluate model
-    loss, accuracy = model.evaluate(test_dataset)
-    print(f"\nNeural Network Test Accuracy: {accuracy:.4f}")
+    # Print classification report
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
     
-    # Print comparison
-    print("\nModel Comparison:")
-    print(f"Multinomial Naive Bayes: {nb_accuracy:.4f}")
-    print(f"Logistic Regression: {lr_accuracy:.4f}")
-    print(f"Random Forest: {rf_accuracy:.4f}")
-    print(f"Neural Network: {accuracy:.4f}")
+    # Print confusion matrix
+    print("\nConfusion Matrix:")
+    cm = confusion_matrix(y_test, y_pred)
+    print(cm)
     
-    # Save model
-    model.save('news_category_model.keras')
+    # Print per-class accuracy
+    print("\nPer-class Accuracy:")
+    for i, class_name in enumerate(np.unique(y_test)):
+        class_correct = np.sum((y_test == class_name) & (y_pred == class_name))
+        class_total = np.sum(y_test == class_name)
+        accuracy = class_correct / class_total if class_total > 0 else 0
+        print(f"{class_name}: {accuracy:.2%} accuracy ({class_correct}/{class_total})")
     
-    # Save label map
+    # Save the models and vectorizer
     import pickle
-    with open('label_map.pickle', 'wb') as handle:
-        pickle.dump(label_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    print("\nSaving models and vectorizer...")
+    with open('main_classifier.pickle', 'wb') as f:
+        pickle.dump(main_classifier, f)
+    with open('specialized_classifiers.pickle', 'wb') as f:
+        pickle.dump(specialized_classifiers, f)
+    with open('tfidf_vectorizer.pickle', 'wb') as f:
+        pickle.dump(vectorizer, f)
+    
+    print("Models and vectorizer saved successfully!")
 
 if __name__ == "__main__":
-    nltk.download('punkt')
-    nltk.download('stopwords')
-    nltk.download('wordnet')
     train_model() 
