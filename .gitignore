@@ -1,10 +1,53 @@
-# Ignore dataset file (or any large data files)
+# Virtual Environment
+venv/
+bert_env/
+env/
+.env/
+
+# Dataset
 News_Category_Dataset_v3.json
 
-# Ignore virtual environment folder
-venv/
+# Model files
+*.h5
+*.keras
+*.pickle
+tokenizer.pickle
+label_map.pickle
+bert_label_map.pickle
 
-# You can add more things to ignore, like:
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

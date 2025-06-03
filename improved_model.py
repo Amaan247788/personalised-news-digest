@@ -4,16 +4,22 @@ from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.utils import pad_sequences
 from sklearn.model_selection import train_test_split
+# For model architecture
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, BatchNormalization, LeakyReLU, GlobalAveragePooling1D
+# For improving existing model
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.optimizers import Adam
+import tensorflow as tf
+# For preprocessing text
 from text_preprocessing import preprocess_text
+import nltk
 
-# Load and preprocess data
 def load_and_preprocess_data(file_path):
     print("Loading data...")
     df = pd.read_json(file_path, lines=True)
+    
+    # Use only 20% of the data
+    df = df.sample(frac=0.4, random_state=42)
     
     # Combine headline and description
     df['text'] = df['headline'] + " " + df['short_description']
@@ -42,20 +48,24 @@ def prepare_data(df):
     
     return padded_sequences, df['label'].values, tokenizer, label_map
 
+# Played around with dropout rates and found that 0.2 is best for accuracy, playing with dense layers now going from
+# previous 32 to 128 taking the accuracy from 53% to 53% but imrpoved training accuracy by 10% from 69->79
 def create_model(vocab_size, num_classes):
     model = Sequential([
         # Embedding layer
-        Embedding(input_dim=vocab_size, output_dim=100, input_length=150),
+        Embedding(input_dim=vocab_size, output_dim=128, input_length=150),
+        BatchNormalization(),
         
-        # Bidirectional LSTM layers
-        Bidirectional(LSTM(64, return_sequences=True)),
-        Dropout(0.3),
-        Bidirectional(LSTM(32)),
-        Dropout(0.3),
+        # Global average pooling (like the baseline)
+        GlobalAveragePooling1D(),
         
-        # Dense layers
-        Dense(64, activation='relu'),
-        Dropout(0.3),
+        # Dense layers with improvements
+        Dense(64),
+        LeakyReLU(),
+        Dropout(0.2),
+        Dense(32),
+        LeakyReLU(),
+        Dropout(0.2),
         Dense(num_classes, activation='softmax')
     ])
     
@@ -74,8 +84,8 @@ def train_model():
     # Create and compile model
     model = create_model(vocab_size=20000, num_classes=len(label_map))
     
-    # Use a lower learning rate
-    optimizer = Adam(learning_rate=0.001)
+    # Use legacy Adam optimizer for better performance on M1/M2
+    optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=0.0005)
     
     model.compile(
         loss='sparse_categorical_crossentropy',
@@ -97,12 +107,12 @@ def train_model():
         min_lr=0.0001
     )
     
-    # Train model
+    # Train model with larger batch size
     print("Training model...")
     history = model.fit(
         X_train, y_train,
-        epochs=15,
-        batch_size=64,
+        epochs=10,
+        batch_size=256,
         validation_data=(X_test, y_test),
         callbacks=[early_stopping, reduce_lr]
     )
@@ -122,4 +132,7 @@ def train_model():
         pickle.dump(label_map, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 if __name__ == "__main__":
+    nltk.download('punkt')
+    nltk.download('stopwords')
+    nltk.download('wordnet')
     train_model() 

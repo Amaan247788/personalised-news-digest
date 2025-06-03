@@ -26,7 +26,8 @@ def clean_text(text):
 
 def remove_stopwords(text):
     stop_words = set(stopwords.words('english'))
-    word_tokens = word_tokenize(text)
+    # Simple word tokenization using split
+    word_tokens = text.split()
     filtered_text = [word for word in word_tokens if word not in stop_words]
     return ' '.join(filtered_text)
 
@@ -35,7 +36,8 @@ def lemmatize_text(text):
     Lemmatize text to reduce words to their base form
     """
     lemmatizer = WordNetLemmatizer()
-    word_tokens = word_tokenize(text)
+    # Simple word tokenization using split
+    word_tokens = text.split()
     lemmatized_text = [lemmatizer.lemmatize(word) for word in word_tokens]
     return ' '.join(lemmatized_text)
 
