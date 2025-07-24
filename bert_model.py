@@ -14,6 +14,7 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk import ne_chunk, pos_tag
 import re
 import json
+import pickle
 
 # Download required NLTK data
 nltk.download('punkt')
@@ -204,7 +205,7 @@ def train_model():
     # Create TF-IDF vectorizer with optimized parameters
     print("Creating TF-IDF vectors...")
     vectorizer = TfidfVectorizer(
-        max_features=8000,
+        max_features=8010,
         ngram_range=(1, 3),
         min_df=3,
         max_df=0.90,
@@ -290,7 +291,6 @@ def train_model():
         print(f"{class_name}: {accuracy:.2%} accuracy ({class_correct}/{class_total})")
     
     # Save the models and vectorizer
-    import pickle
     print("\nSaving models and vectorizer...")
     with open('main_classifier.pickle', 'wb') as f:
         pickle.dump(main_classifier, f)
@@ -298,8 +298,11 @@ def train_model():
         pickle.dump(specialized_classifiers, f)
     with open('tfidf_vectorizer.pickle', 'wb') as f:
         pickle.dump(vectorizer, f)
-    
-    print("Models and vectorizer saved successfully!")
+    print(f"[DEBUG] Saved vectorizer with {len(vectorizer.get_feature_names_out())} features.")
+
+    with open('random_forest_model.pickle', 'wb') as f:
+        pickle.dump(main_classifier, f)
+    print("Retraining complete. Old files replaced with updated ones.")
 
 if __name__ == "__main__":
     train_model() 
